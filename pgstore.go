@@ -26,7 +26,6 @@ type PGStore struct {
 
 // PGSession type
 type PGSession struct {
-	ID         int64
 	Key        string
 	Data       string
 	CreatedOn  time.Time
@@ -231,12 +230,15 @@ func (db *PGStore) createSessionsTable() error {
 	stmt := `DO $$
               BEGIN
               CREATE TABLE IF NOT EXISTS http_sessions (
-              id BIGSERIAL PRIMARY KEY,
-              key BYTEA,
+              key VARCHAR(63) PRIMARY KEY,
               data BYTEA,
               created_on TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
               modified_on TIMESTAMPTZ,
               expires_on TIMESTAMPTZ);
+
+              -- Find expired sessions more efficiently during automated cleanup
+              CREATE INDEX IF NOT EXISTS http_sessions_expires_on ON http_sessions USING btree (expires_on);
+
               EXCEPTION WHEN insufficient_privilege THEN
                 IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables WHERE schemaname = current_schema() AND tablename = 'http_sessions') THEN
                   RAISE;
@@ -254,8 +256,8 @@ func (db *PGStore) createSessionsTable() error {
 }
 
 func (db *PGStore) selectOne(s *PGSession, key string) error {
-	stmt := "SELECT id, key, data, created_on, modified_on, expires_on FROM http_sessions WHERE key = $1"
-	err := db.DbPool.QueryRow(stmt, key).Scan(&s.ID, &s.Key, &s.Data, &s.CreatedOn, &s.ModifiedOn, &s.ExpiresOn)
+	stmt := "SELECT key, data, created_on, modified_on, expires_on FROM http_sessions WHERE key = $1"
+	err := db.DbPool.QueryRow(stmt, key).Scan(&s.Key, &s.Data, &s.CreatedOn, &s.ModifiedOn, &s.ExpiresOn)
 	if err != nil {
 		return errors.Wrapf(err, "Unable to find session in the database")
 	}
