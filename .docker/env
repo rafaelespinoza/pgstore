@@ -1,0 +1,3 @@
+POSTGRES_DB=pgstore_test
+POSTGRES_PASSWORD=password
+POSTGRES_USER=pgstore

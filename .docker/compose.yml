@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+    client:
+        image: pgstore_test/client:latest
+        container_name: pgstore_test_client
+        depends_on:
+          - server
+        entrypoint: /client.sh server
+        env_file:
+            - env
+        environment:
+            # needed to run tests with race condition detection.
+            CGO_ENABLED: 1
+            PGSTORE_TEST_CONN: "postgres://pgstore:password@server:5432/pgstore_test?sslmode=disable"
+        tty: true
+    server:
+        image: pgstore_test/server:latest
+        container_name: pgstore_test_server
+        env_file:
+            - env
+        expose:
+            - 5432
+        volumes:
+            -
+              type: volume
+              source: server
+              target: /var/lib/postgresql/data
+
+volumes:
+    server:
