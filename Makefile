@@ -1,36 +1,25 @@
-all: get-deps build
+# If using multiple versions of go, or your target golang version is not in your
+# PATH, or whatever reason, specify a path to the golang binary when invoking
+# make, for example: make build GO=/path/to/other/golang/bin/go
+GO ?= go
+
+all: deps build
 
 .PHONY: build
 build:
-	go build ./...
+	$(GO) build ./...
 
-.PHONY: get-deps
-get-deps:
-	go get -v ./...
+.PHONY: deps
+deps:
+	$(GO) mod tidy && $(GO) mod download && $(GO) mod verify
 
 .PHONY: test
-test: get-deps lint-check docs-check check
+test: deps check
 
 .PHONY: check
 check:
-	go test -v -race -cover ./...
-
-.PHONY: lint-check
-lint-check:
-	golangci-lint run
+	$(GO) test -v -race -cover ./...
 
 .PHONY: fmt
 fmt:
-	@go fmt ./... | awk '{ print "Please run go fmt"; exit 1 }'
-
-.PHONY: docs-dep
-	which embedmd > /dev/null || go get github.com/campoy/embedmd
-
-.PHONY: docs-check
-docs-check: docs-dep
-	@echo "Checking if docs are generated, if this fails, run 'make docs'."
-	embedmd README.md | diff README.md -
-
-.PHONY: docs
-docs: docs-dep
-	embedmd -w README.md
+	@$(GO) fmt ./... | awk '{ print "Please run go fmt"; exit 1 }'
