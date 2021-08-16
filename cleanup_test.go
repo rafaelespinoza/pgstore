@@ -1,6 +1,7 @@
 package pgstore
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"testing"
@@ -15,30 +16,17 @@ func TestCleanup(t *testing.T) {
 
 	ss, err := NewPGStore(dsn, []byte(secret))
 	if err != nil {
-		t.Fatal("Failed to get store", err)
+		t.Fatal("failed to get store", err)
 	}
-
 	defer ss.Close()
+
 	// Start the cleanup goroutine.
 	defer ss.StopCleanup(ss.Cleanup(time.Millisecond * 500))
 
-	req, err := http.NewRequest("GET", "http://www.example.com", nil)
-	if err != nil {
-		t.Fatal("Failed to create request", err)
+	if err := makeExpiredSession(ss, 1); err != nil {
+		t.Fatal(err)
 	}
-
-	session, err := ss.Get(req, "newsess")
-	if err != nil {
-		t.Fatal("Failed to create session", err)
-	}
-
-	// Expire the session.
-	session.Options.MaxAge = 1
-
-	m := make(http.Header)
-	if err = ss.Save(req, headerOnlyResponseWriter(m), session); err != nil {
-		t.Fatal("failed to save session:", err.Error())
-	}
+	defer func() { deleteAllSessions(t, ss) }()
 
 	// Give the ticker a moment to run.
 	time.Sleep(time.Millisecond * 1500)
@@ -47,10 +35,84 @@ func TestCleanup(t *testing.T) {
 	var count int
 	err = ss.DbPool.QueryRow("SELECT count(*) FROM http_sessions WHERE expires_on < now()").Scan(&count)
 	if err != nil {
-		t.Fatalf("failed to select expired sessions from DB: %v", err)
+		t.Fatalf("failed to select http_sessions; %v", err)
 	}
 
-	if count > 0 {
-		t.Fatalf("ticker did not delete expired sessions: want 0 got %v", count)
+	if count != 0 {
+		t.Fatalf("wrong number of remaining sessions; got %d, expected %d", count, 0)
 	}
+}
+
+func TestDeleteExpired(t *testing.T) {
+	dsn := os.Getenv("PGSTORE_TEST_CONN")
+	if dsn == "" {
+		t.Skip("This test requires a real database.")
+	}
+	ss, err := NewPGStore(dsn, []byte(secret))
+	if err != nil {
+		t.Fatal("failed to get store", err)
+	}
+	defer ss.Close()
+
+	for i := 0; i < 4; i++ {
+		maxAge := 1
+		if i%2 == 1 {
+			maxAge = 9999
+		}
+		if err := makeExpiredSession(ss, maxAge); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { deleteAllSessions(t, ss) }()
+	time.Sleep(time.Millisecond * 1500) // Allow some sessions to expire.
+	if err = ss.DeleteExpired(); err != nil {
+		t.Fatal(err)
+	}
+
+	var countDeleted, countRemaining int
+	err = ss.DbPool.QueryRow("SELECT count(*) FROM http_sessions WHERE expires_on < now()").Scan(&countDeleted)
+	if err != nil {
+		t.Fatalf("failed to select http_sessions; %v", err)
+	}
+	if countDeleted != 0 {
+		t.Fatalf("wrong number of remaining sessions; got %d, expected %d", countDeleted, 0)
+	}
+
+	err = ss.DbPool.QueryRow("SELECT count(*) FROM http_sessions WHERE expires_on >= now()").Scan(&countRemaining)
+	if err != nil {
+		t.Fatalf("failed to select http_sessions; %v", err)
+	}
+	if countRemaining != 2 {
+		t.Fatalf("wrong number of remaining sessions; got %d, expected %d", countRemaining, 2)
+	}
+}
+
+func makeExpiredSession(store *PGStore, maxAge int) error {
+	req, err := http.NewRequest("GET", "http://www.example.com", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request; %v", err)
+	}
+
+	session, err := store.Get(req, "newsess")
+	if err != nil {
+		return fmt.Errorf("failed to create session; %v", err)
+	}
+
+	// Setup session to expire.
+	session.Options.MaxAge = maxAge
+
+	m := make(http.Header)
+	if err = store.Save(req, headerOnlyResponseWriter(m), session); err != nil {
+		return fmt.Errorf("failed to save session; %v", err)
+	}
+
+	return nil
+}
+
+func deleteAllSessions(t *testing.T, store *PGStore) {
+	t.Helper()
+	if _, err := store.DbPool.Exec("DELETE FROM http_sessions"); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("deleted leftover http_sessions")
 }

@@ -31,9 +31,7 @@ func (db *PGStore) StopCleanup(quit chan<- struct{}, done <-chan struct{}) {
 func (db *PGStore) cleanup(interval time.Duration, quit <-chan struct{}, done chan<- struct{}) {
 	ticker := time.NewTicker(interval)
 
-	defer func() {
-		ticker.Stop()
-	}()
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -43,7 +41,7 @@ func (db *PGStore) cleanup(interval time.Duration, quit <-chan struct{}, done ch
 			return
 		case <-ticker.C:
 			// Delete expired sessions on each tick.
-			err := db.deleteExpired()
+			err := db.DeleteExpired()
 			if err != nil {
 				log.Printf("pgstore: unable to delete expired sessions: %v", err)
 			}
@@ -51,8 +49,8 @@ func (db *PGStore) cleanup(interval time.Duration, quit <-chan struct{}, done ch
 	}
 }
 
-// deleteExpired deletes expired sessions from the database.
-func (db *PGStore) deleteExpired() error {
+// DeleteExpired deletes expired sessions from the database.
+func (db *PGStore) DeleteExpired() error {
 	_, err := db.DbPool.Exec("DELETE FROM http_sessions WHERE expires_on < now()")
 	return err
 }
