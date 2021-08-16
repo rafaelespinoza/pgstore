@@ -1,5 +1,7 @@
 # pgstore
 
+[![build](https://github.com/rafaelespinoza/pgstore/actions/workflows/build.yml/badge.svg)](https://github.com/rafaelespinoza/pgstore/actions/workflows/build.yml)
+
 A session store backend for [github.com/gorilla/sessions](https://github.com/gorilla/sessions).
 
 This is a fork of [github.com/antonlindstrom/pgstore](https://github.com/antonlindstrom/pgstore).
