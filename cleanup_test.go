@@ -1,6 +1,7 @@
 package pgstore
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -43,11 +44,64 @@ func TestCleanup(t *testing.T) {
 	}
 }
 
+func TestRunCleanup(t *testing.T) {
+	dsn := os.Getenv("PGSTORE_TEST_CONN")
+	if dsn == "" {
+		t.Skip("This test requires a real database.")
+	}
+
+	ss, err := NewPGStore(dsn, []byte(secret))
+	if err != nil {
+		t.Fatal("failed to get store", err)
+	}
+	defer ss.Close()
+
+	if err := makeExpiredSession(ss, 1); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { deleteAllSessions(t, ss) }()
+
+	time.Sleep(time.Millisecond * 1500) // Allow sessions to expire.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	var numOKs, numTimeouts int
+	for err := range ss.RunCleanup(ctx, time.Millisecond*500) {
+		switch err {
+		case nil:
+			numOKs++
+			t.Log("cleanup ok")
+		case context.DeadlineExceeded:
+			numTimeouts++
+			t.Log("timeout")
+		default:
+			t.Error(err)
+		}
+	}
+	if numOKs < 1 {
+		t.Errorf("expected at least 1 ok, but got %d", numOKs)
+	}
+	if numTimeouts != 1 {
+		t.Errorf("%d timeout is OK, but got %d", 1, numTimeouts)
+	}
+
+	var count int
+	err = ss.DbPool.QueryRow("SELECT count(*) FROM http_sessions WHERE expires_on < now()").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to select http_sessions; %v", err)
+	}
+
+	if count != 0 {
+		t.Fatalf("wrong number of remaining sessions; got %d, expected %d", count, 0)
+	}
+}
+
 func TestDeleteExpired(t *testing.T) {
 	dsn := os.Getenv("PGSTORE_TEST_CONN")
 	if dsn == "" {
 		t.Skip("This test requires a real database.")
 	}
+
 	ss, err := NewPGStore(dsn, []byte(secret))
 	if err != nil {
 		t.Fatal("failed to get store", err)
